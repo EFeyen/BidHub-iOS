@@ -3,57 +3,41 @@
 //  AuctionApp
 //
 
-import UIKit
+//import UIKit
+import Foundation
+import Kinvey
+import RealmSwift
+import Realm
 
-class Bid: PFObject, PFSubclassing {
-    
-    @NSManaged var email: String
-    @NSManaged var name: String
-    
-    var amount: Int {
-        get {
-            return self["amt"] as! Int
-        }
-        set {
-            self["amt"] = newValue
-        }
+class Bid: Entity {
+
+    @objc dynamic var email: String!
+    @objc dynamic var name: String!
+    @objc dynamic var bidderNumber: String!
+    @objc dynamic var amount:Int = 0
+    @objc dynamic var itemId: String!
+
+    override class func collectionName() -> String {
+        // return the name of the backend collection corresponding to this entity
+        return "bids"
     }
     
-    var itemId: String {
-        get {
-            return self["item"] as! String
-        }
-        set {
-            self["item"] = newValue
-        }
-    }
-    
-    //Needed
-    override init(){
-        super.init()
-    }
-    
-    init(email: String, name: String, amount: Int, itemId: String) {
-        super.init()
-        self.email = email
-        self.name = name
-        self.amount = amount
-        self.itemId = itemId
-    }
-    
-    override class func initialize() {
-        var onceToken : dispatch_once_t = 0;
-        dispatch_once(&onceToken) {
-            self.registerSubclass()
-        }
-    }
-    
-    class func parseClassName() -> String! {
-        return "NewBid"
+    // Map properties in your backend collection to the members of this entity
+    override func propertyMapping(_ map: Map) {
+        // This maps the "_id", "_kmd", and "_acl" properties
+        super.propertyMapping(map)
+        
+        // Each propety in your entity should be mapped using the following scheme:
+        // <member variable> <- ("<query property name>", map["<backend property name>"])
+        email <- ("email", map["email"])
+        name <- ("name", map["name"])
+        bidderNumber <- ("bidderNumber", map["bidderNumber"])
+        amount <- ("amount", map["amt"])
+        itemId <- ("itemId", map["itemId"])
     }
 }
 
 enum BidType {
-    case Extra(Int)
-    case Custom(Int)
+    case extra(Int)
+    case custom(Int)
 }

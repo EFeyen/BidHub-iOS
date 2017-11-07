@@ -4,15 +4,17 @@
 //
 
 import UIKit
+import Kinvey
 
-protocol ItemTableViewCellDelegate {
-    
-    func cellDidPressBid(item: Item)
-    
+protocol ItemTableViewCellDelegate
+{
+    func cellDidPressBid(_ item: Item)
+    func cellDidPressBidSheet(_ item: Item)
+    func showAlert(_ title:String, message:String)
 }
 
-class ItemTableViewCell: UITableViewCell {
-
+class ItemTableViewCell: UITableViewCell
+{
     @IBOutlet var cardContainer: UIView!
     @IBOutlet var donorAvatar: UIImageView!
     @IBOutlet var bidNowButton: UIButton!
@@ -25,6 +27,7 @@ class ItemTableViewCell: UITableViewCell {
     @IBOutlet var itemImageView: UIImageView!
     @IBOutlet var currentBidLabel: UILabel!
     @IBOutlet var numberOfBidsLabel: UILabel!
+    @IBOutlet var numberOfBidsButton: UIButton!
     @IBOutlet var itemDonorLabel: UILabel!
     @IBOutlet var headerBackground: UIView!
     @IBOutlet var availLabel: UILabel!
@@ -42,14 +45,16 @@ class ItemTableViewCell: UITableViewCell {
     var item: Item?
     override func awakeFromNib() {
         super.awakeFromNib()
-        itemImageView.contentMode = .ScaleAspectFill
+        itemImageView.contentMode = .scaleAspectFill
         itemImageView.clipsToBounds = true
         alreadyLoaded = false
-        
+
         shadowView.backgroundColor = UIColor(patternImage: UIImage(named:"cellBackShadow")!)
         
         donorAvatar.layer.cornerRadius = donorAvatar.frame.size.height/2
         donorAvatar.layer.masksToBounds = true
+        donorAvatar.layer.borderColor = UIColor.gray.cgColor
+        donorAvatar.layer.borderWidth = 0.1
 
         cardContainer.layer.cornerRadius = 4
         cardContainer.clipsToBounds = true
@@ -63,44 +68,83 @@ class ItemTableViewCell: UITableViewCell {
             }
         }
     }
-    
-    func setWinning(){
-        headerBackground.backgroundColor = winningBackgroundColor
-        moreInfoView.hidden = false
-        moreInfoView.backgroundColor = winningBackgroundColor
-        if let itemUW = item {
 
-            switch(itemUW.winnerType){
-            case .Multiple:
-                let user = PFUser.currentUser()
-                if let index = find(itemUW.currentWinners, user.email){
-                    moreInfoLabel.text = "YOUR BID IS #\(index + 1)"
-                }else{
-                    fallthrough
+    func callDelegateWithBidSheet(){
+        if let delegateUW = delegate {
+            if let itemUW = item {
+                if(itemUW.allBids.count == 0)
+                {
+                    self.delegate?.showAlert("No Bids", message: "There are currently no bids on this item. Be the first!")
                 }
-            case .Single:
-                moreInfoLabel.text = "YOUR BID IS WINNING. NICE!"
+                else
+                {
+                    delegateUW.cellDidPressBidSheet(itemUW)
+                }
             }
         }
     }
     
+    func setWinning(){
+        headerBackground.backgroundColor = winningBackgroundColor
+        moreInfoView.isHidden = false
+        moreInfoView.backgroundColor = winningBackgroundColor
+        if let itemUW = item {
+
+            switch(itemUW.winnerType){
+            case .multiple:
+                let user = Kinvey.sharedClient.activeUser
+                if let index = itemUW.currentWinners.index(of: (user?.email)!){
+                    if(itemUW.closeTime.timeIntervalSinceNow < 0.0)
+                    {
+                        moreInfoLabel.text = "YOU WON! YOUR WINNING BID IS #\(index + 1)"
+                    }
+                    else
+                    {
+                        moreInfoLabel.text = "YOUR BID IS #\(index + 1)"
+                    }
+                }else{
+                    fallthrough
+                }
+            case .single:
+                if(itemUW.closeTime.timeIntervalSinceNow < 0.0)
+                {
+                    moreInfoLabel.text = "YOU WON! CONGRATULATIONS!"
+                }
+                else
+                {
+                    moreInfoLabel.text = "YOUR BID IS WINNING. NICE!"
+                }
+            }
+        }
+    }
+
     func setOutbid(){
         headerBackground.backgroundColor = outbidBackgroundColor
-        moreInfoView.hidden = false
+        moreInfoView.isHidden = false
         moreInfoView.backgroundColor = outbidBackgroundColor
-        moreInfoLabel.text = "YOU'VE BEEN OUTBID. TRY HARDER?"
+        if let itemUW = item {
+            if(itemUW.closeTime.timeIntervalSinceNow < 0.0)
+            {
+                moreInfoLabel.text = "YOU'VE BEEN OUTBID."
+            }
+            else
+            {
+                moreInfoLabel.text = "YOU'VE BEEN OUTBID. TRY HARDER?"
+            }
+        }
     }
     
     func setDefault(){
         headerBackground.backgroundColor = defaultBackgroundColor
-        moreInfoView.hidden = true
+        moreInfoView.isHidden = true
         moreInfoView.backgroundColor = defaultBackgroundColor
     }
     
-    
-    @IBAction func bidNowPressed(sender: AnyObject) {
-        callDelegateWithBid()
+    @IBAction func bidSheetPressed(_ sender: AnyObject) {
+        callDelegateWithBidSheet()
     }
     
-
+    @IBAction func bidNowPressed(_ sender: AnyObject) {
+        callDelegateWithBid()
+    }
 }

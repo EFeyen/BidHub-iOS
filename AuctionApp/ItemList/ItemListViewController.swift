@@ -4,34 +4,34 @@
 //
 
 import UIKit
+import Kinvey
 
 extension String {
     subscript (i: Int) -> String {
-        return String(Array(self)[i])
+        return String(Array(arrayLiteral: self)[i])
     }
 }
 
-class ItemListViewController: UIViewController, UITableViewDelegate, UITableViewDataSource, UISearchBarDelegate,ItemTableViewCellDelegate, BiddingViewControllerDelegate {
-    
+class ItemListViewController: UIViewController, UITableViewDelegate, UITableViewDataSource, UISearchBarDelegate,ItemTableViewCellDelegate, BiddingViewControllerDelegate, BidSheetViewControllerDelegate {
+
     @IBOutlet var searchBar: UISearchBar!
     @IBOutlet var segmentControl: UISegmentedControl!
     @IBOutlet var tableView: UITableView!
     var refreshControl: UIRefreshControl = UIRefreshControl()
     var items:[Item] = [Item]()
-    var timer:NSTimer?
-    var filterType: FilterType = .All
+    var timer:Timer?
+    var filterType: FilterType = .all
     var sizingCell: ItemTableViewCell?
     var bottomContraint:NSLayoutConstraint!
 
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
-        SVProgressHUD.setForegroundColor(UIColor(red: 157/225, green: 19/225, blue: 43/225, alpha: 1.0))
-        SVProgressHUD.setRingThickness(2.0)
-        
-        
-        let colorView:UIView = UIView(frame: CGRectMake(0, -1000, view.frame.size.width, 1000))
-        colorView.backgroundColor = UIColor.whiteColor()
+//        SVProgressHUD.setForegroundColor(UIColor(red: 157/225, green: 19/225, blue: 43/225, alpha: 1.0))
+//        SVProgressHUD.setRingThickness(2.0)
+
+        let colorView:UIView = UIView(frame: CGRect(x: 0, y: -1000, width: view.frame.size.width, height: 1000))
+        colorView.backgroundColor = UIColor.white
         tableView.addSubview(colorView)
 
         //Refresh Control
@@ -39,157 +39,157 @@ class ItemListViewController: UIViewController, UITableViewDelegate, UITableView
         tableView.insertSubview(refreshView, aboveSubview: colorView)
 
         refreshControl.tintColor = UIColor(red: 157/225, green: 19/225, blue: 43/225, alpha: 1.0)
-        refreshControl.addTarget(self, action: "reloadItems", forControlEvents: .ValueChanged)
+        refreshControl.addTarget(self, action: #selector(ItemListViewController.reloadItems), for: .valueChanged)
         refreshView.addSubview(refreshControl)
-        
-        
-        sizingCell = tableView.dequeueReusableCellWithIdentifier("ItemTableViewCell") as? ItemTableViewCell
 
-        if iOS8 {
-            tableView.estimatedRowHeight = 392
-            tableView.rowHeight = UITableViewAutomaticDimension
-        }
+        sizingCell = tableView.dequeueReusableCell(withIdentifier: "ItemTableViewCell") as? ItemTableViewCell
+
+        tableView.estimatedRowHeight = 392
+        tableView.rowHeight = UITableViewAutomaticDimension
         self.tableView.alpha = 0.0
-        reloadData(silent: false, initialLoad: true)
+        reloadData(false, initialLoad: true)
 
-        let user = PFUser.currentUser()
-        println("Logged in as: \(user.email)")
+//        let user = KCSUser.activeUser()
+//        print("Logged in as: \(user.email)")
+        super.viewDidLoad()
         
     }
     
-    override func viewDidAppear(animated: Bool) {
-        NSNotificationCenter.defaultCenter().addObserver(self, selector: "pushRecieved:", name: "pushRecieved", object: nil)
-        timer = NSTimer.scheduledTimerWithTimeInterval(30.0, target: self, selector: "reloadItems", userInfo: nil, repeats: true)
+    override func viewDidAppear(_ animated: Bool) {
+        NotificationCenter.default.addObserver(self, selector: #selector(ItemListViewController.pushRecieved(_:)), name: NSNotification.Name(rawValue: "pushRecieved"), object: nil)
+        timer = Timer.scheduledTimer(timeInterval: 30.0, target: self, selector: #selector(ItemListViewController.reloadItems), userInfo: nil, repeats: true)
         timer?.tolerance = 10.0
     }
     
-    override func viewWillDisappear(animated: Bool) {
-        NSNotificationCenter.defaultCenter().removeObserver(self)
+    override func viewWillDisappear(_ animated: Bool) {
+        NotificationCenter.default.removeObserver(self)
         timer?.invalidate()
     }
     
     
-    func pushRecieved(notification: NSNotification){
-        
-        if let aps = notification.object?["aps"] as? [NSObject: AnyObject]{
-            if let alert = aps["alert"] as? String {
-                CSNotificationView.showInViewController(self, tintColor: UIColor.whiteColor(), font: UIFont(name: "Avenir-Light", size: 14)!, textAlignment: .Center, image: nil, message: alert, duration: 5.0)
-                
+    @objc func pushRecieved(_ notification: Notification)
+    {
+        if Kinvey.sharedClient.activeUser != nil
+        {
+            if let bidderEmail = notification.userInfo?["email"] as? String
+            {
+                if bidderEmail != Kinvey.sharedClient.activeUser?.email
+                {
+                    if let aps = notification.userInfo?["aps"] as? [AnyHashable: Any]{
+                        if let alert = aps["alert"] as? String {
+//                            CSNotificationView.show(in: self, tintColor: UIColor.white, font: UIFont(name: "Avenir-Light", size: 14)!, textAlignment: .center, image: nil, message: alert, duration: 5.0)
+                            let alertui = UIAlertController(title: "", message: alert, preferredStyle: UIAlertControllerStyle.alert)
+                            self.present(alertui, animated: true, completion: nil)
+                            let when = DispatchTime.now() + 3
+                            DispatchQueue.main.asyncAfter(deadline: when) {
+                                alertui.dismiss(animated: true, completion: nil)
+                            }
+                        }
+                    }
+                }
             }
+            reloadData()
         }
-        reloadData()
-        
-        
     }
     
     //Hack for selectors and default parameters
-    func reloadItems(){
+    @objc func reloadItems(){
         reloadData()
     }
     
-    func reloadData(silent: Bool = true, initialLoad: Bool = false) {
+    func reloadData(_ silent: Bool = true, initialLoad: Bool = false) {
         if initialLoad {
-            SVProgressHUD.show()
+            ViewControllerUtils.shared.showActivityIndicator(uiView: self.view)
+//            SVProgressHUD.show()
         }
-        DataManager().sharedInstance.getItems{ (items, error) in
-        
+
+        Kinvey.sharedClient.activeUser?.refresh() { result in
+            switch result {
+                case .success:
+                    print()
+//                  let savedUser = results[0] as! KCSUser
+                case .failure(let error):
+                    //Error Case
+                    if !silent {
+                        self.showError("Error getting Items: " + error.localizedDescription)
+                    }
+                    print("Error getting items: " + error.localizedDescription)
+            }
+        }
+
+        DataManager().sharedInstance.fetchItems{ (items, error) in
             if error != nil {
                 //Error Case
                 if !silent {
                     self.showError("Error getting Items")
                 }
-                println("Error getting items")
+                print("Error getting items")
                 
             }else{
-                self.items = items
+                self.items = items!
                 self.filterTable(self.filterType)
             }
             self.refreshControl.endRefreshing()
             
             if initialLoad {
-                SVProgressHUD.dismiss()
-                UIView.animateWithDuration(1.0, animations: { () -> Void in
+                ViewControllerUtils.shared.hideActivityIndicator(uiView: self.view)
+//                SVProgressHUD.dismiss()
+                UIView.animate(withDuration: 1.0, animations: { () -> Void in
                     self.tableView.alpha = 1.0
                 })
             }
-            
         }
     }
     
-    func tableView(tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         return items.count
     }
     
     
-    func tableView(tableView: UITableView, heightForRowAtIndexPath indexPath: NSIndexPath) -> CGFloat {
-        if iOS8 {
-            return UITableViewAutomaticDimension
-        }else{
-
-            if let cell = sizingCell {
-                
-                let padding = 353
-                let minHeightText: NSString = "\n\n"
-                let font = UIFont(name: "Avenir Light", size: 15.0)!
-                let attributes =  [NSFontAttributeName: font] as NSDictionary
-                let item = items[indexPath.row]
-                
-                let minSize = minHeightText.boundingRectWithSize(CGSize(width: (view.frame.size.width - 40), height: 1000), options: .UsesLineFragmentOrigin, attributes: attributes as [NSObject : AnyObject], context: nil).height
-                
-                let maxSize = item.itemDesctiption.boundingRectWithSize(CGSize(width: (view.frame.size.width - 40), height: 1000), options: .UsesLineFragmentOrigin, attributes: attributes as [NSObject : AnyObject], context: nil).height + 50
-                
-                return (max(minSize, maxSize) + CGFloat(padding))
-
-            }else{
-                return 392
-            }
-            
-        }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return UITableViewAutomaticDimension
     }
     
     
-    func tableView(tableView: UITableView, cellForRowAtIndexPath indexPath: NSIndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCellWithIdentifier("ItemTableViewCell", forIndexPath: indexPath) as! ItemTableViewCell
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ItemTableViewCell", for: indexPath) as! ItemTableViewCell
         
         return configureCellForIndexPath(cell, indexPath: indexPath)
     }
     
-    func configureCellForIndexPath(cell: ItemTableViewCell, indexPath: NSIndexPath) -> ItemTableViewCell {
+    func configureCellForIndexPath(_ cell: ItemTableViewCell, indexPath: IndexPath) -> ItemTableViewCell {
         let item = items[indexPath.row]
-        
+
         cell.itemImageView.image = nil
-        var url:NSURL = NSURL(string: item.imageUrl)!
-        cell.itemImageView.setImageWithURL(url)
-        
-
-        let fullNameArr = item.donorName.componentsSeparatedByString(" ")
-        cell.donorAvatar.image = nil;
-        if fullNameArr.count > 1{
-            var firstName: String = fullNameArr[0]
-            var lastName: String = fullNameArr[1]
-            var inital: String = firstName[0]
-            var donorAvatarStringUrl = "https://api.hubapi.com/socialintel/v1/avatars?email=\(inital)\(lastName)@hubspot.com"
-
-            var donorAvatarUrl:NSURL = NSURL(string: donorAvatarStringUrl)!
-            
-            cell.donorAvatar.setImageWithURLRequest(NSURLRequest(URL: donorAvatarUrl), placeholderImage: nil, success: { (urlRequest: NSURLRequest!, response: NSURLResponse!, image: UIImage!) -> Void in
-                cell.donorAvatar.image = image.resizedImageToSize(cell.donorAvatar.bounds.size)
-                
-            }, failure: { (urlRequest: NSURLRequest!, response: NSURLResponse!, error: NSError!) -> Void in
-                println("error occured: \(error)")
-            })
+        let url:URL = URL(string: item.imageUrl)!
+        if let imageData: NSData = NSData(contentsOf: url) {
+            cell.itemImageView.image = UIImage(data: imageData as Data)?.scaleAndCropImage(toSize: cell.itemImageView.bounds.size)
         }
-        
+//        cell.itemImageView.setImageWith(url)
+
+        cell.donorAvatar.image = nil;
+        let donorAvatarUrl:URL = URL(string: item.donorUrl)!
+        if let donorImageData: NSData = NSData(contentsOf: donorAvatarUrl) {
+            cell.donorAvatar.image = UIImage(data: donorImageData as Data)?.scaleAndCropImage(toSize: cell.donorAvatar.bounds.size)
+        }
+/*
+        cell.donorAvatar.setImageWith(URLRequest(url: donorAvatarUrl), placeholderImage: nil, success: { (urlRequest: URLRequest, response: HTTPURLResponse?, image: UIImage) -> Void in
+            cell.donorAvatar.image = image.resizedImage(to: cell.donorAvatar.bounds.size)
+
+        }, failure: { (urlRequest: URLRequest, response: HTTPURLResponse?, error: NSError) -> Void in
+            print("error occured: \(error)")
+        } as? (URLRequest, HTTPURLResponse?, Swift.Error) -> Void)
+*/
         cell.itemDonorLabel.text = item.donorName
         cell.itemTitleLabel.text = item.name
-        cell.itemDescriptionLabel.text = item.itemDesctiption
+        cell.itemDescriptionLabel.text = item.itemDescription
         
         if item.quantity > 1 {
-            var bidsString = ", ".join(item.currentPrice.map({bidPrice in "$\(bidPrice)"}))
-            if count(bidsString) == 0 {
+            var bidsString = item.currentPrice.map({bidPrice in "$\(bidPrice)"}).joined(separator: ",")
+            if (bidsString.isEmpty) {
                 bidsString = "(none yet)"
             }
-            
+
             cell.itemDescriptionLabel.text =
                 "\(item.quantity) available! Highest \(item.quantity) bidders win. Current highest bids are \(bidsString)" +
                 "\n\n" + cell.itemDescriptionLabel.text!
@@ -201,18 +201,19 @@ class ItemListViewController: UIViewController, UITableViewDelegate, UITableView
         var lowPrice: Int?
 
         switch (item.winnerType) {
-        case .Single:
+        case .single:
             price = item.currentPrice.first
             cell.availLabel.text = "1 Available"
-        case .Multiple:
+        case .multiple:
             price = item.currentPrice.first
             lowPrice = item.currentPrice.last
             cell.availLabel.text = "\(item.quantity) Available"
         }
         
         let bidString = (item.numberOfBids == 1) ? "Bid":"Bids"
-        cell.numberOfBidsLabel.text = "\(item.numberOfBids) \(bidString)"
-        
+//        cell.numberOfBidsLabel.text = "\(item.numberOfBids) \(bidString)"
+        cell.numberOfBidsButton.setTitle("\(item.numberOfBids) \(bidString)", for: UIControlState())
+
         if let topBid = price {
             if let lowBid = lowPrice{
                 if item.numberOfBids > 1{
@@ -236,133 +237,169 @@ class ItemListViewController: UIViewController, UITableViewDelegate, UITableView
         }else{
             cell.setDefault()
         }
-        
-        if(item.closeTime.timeIntervalSinceNow < 0.0){
-            cell.dateLabel.text = "Sorry, bidding has closed"
-            cell.bidNowButton.hidden = true
-        }else{
-            if(item.openTime.timeIntervalSinceNow < 0.0){
-                //open
-                cell.dateLabel.text = "Bidding closes \(item.closeTime.relativeTime().lowercaseString)."
-                cell.bidNowButton.hidden = false
+
+        let me = Kinvey.sharedClient.activeUser as! CustomUser
+        if(me.bidderNumber == "")
+        {
+            cell.dateLabel.text = "Bidder number not yet assigned."
+            cell.bidNowButton.isHidden = true
+        }
+        else
+        {
+            if(item.closeTime.timeIntervalSinceNow < 0.0){
+                cell.dateLabel.text = "Sorry, bidding has closed"
+                cell.bidNowButton.isHidden = true
             }else{
-                cell.dateLabel.text = "Bidding opens \(item.openTime.relativeTime().lowercaseString)."
-                cell.bidNowButton.hidden = true
+                if(item.openTime.timeIntervalSinceNow < 0.0){
+                    //open
+                    cell.dateLabel.text = "Bidding closes \(item.closeTime.toStringWithRelativeTime().lowercased())."
+                    cell.bidNowButton.isHidden = false
+                }else{
+                    cell.dateLabel.text = "Bidding opens \(item.openTime.toStringWithRelativeTime().lowercased())."
+                    cell.bidNowButton.isHidden = true
+                }
             }
         }
         
         return cell
     }
-    
+
     //Cell Delegate
-    func cellDidPressBid(item: Item) {
-        
-        
-        let bidVC = UIStoryboard(name: "Main", bundle: NSBundle.mainBundle()).instantiateViewControllerWithIdentifier("BiddingViewController") as? BiddingViewController
+    func cellDidPressBid(_ item: Item)
+    {
+        let bidVC = UIStoryboard(name: "Main", bundle: Bundle.main).instantiateViewController(withIdentifier: "BiddingViewController") as? BiddingViewController
         if let biddingVC = bidVC {
             biddingVC.delegate = self
             biddingVC.item = item
             addChildViewController(biddingVC)
             view.addSubview(biddingVC.view)
-            biddingVC.didMoveToParentViewController(self)
+            biddingVC.didMove(toParentViewController: self)
         }
     }
-        
-    @IBAction func logoutPressed(sender: AnyObject) {
-        PFUser.logOut()
-        performSegueWithIdentifier("logoutSegue", sender: nil)
+
+    //Cell Delegate to view Bid Sheet
+    func cellDidPressBidSheet(_ item: Item)
+    {
+        let bidsVC = UIStoryboard(name: "Main", bundle: Bundle.main).instantiateViewController(withIdentifier: "BidSheetViewController") as? BidSheetViewController
+        if let bidSheetVC = bidsVC {
+            bidSheetVC.delegate = self
+            bidSheetVC.item = item
+            addChildViewController(bidSheetVC)
+            view.addSubview(bidSheetVC.view)
+            bidSheetVC.didMove(toParentViewController: self)
+        }
     }
-    
-    @IBAction func segmentBarValueChanged(sender: AnyObject) {
+
+    func showAlert(_ title: String, message: String) {
+        let alert = UIAlertController(title: title, message: message, preferredStyle: UIAlertControllerStyle.alert)
+        alert.addAction(UIAlertAction(title: "OK", style: UIAlertActionStyle.default, handler: nil))
+        self.present(alert, animated: true, completion: nil)
+    }
+
+    @IBAction func logoutPressed(_ sender: AnyObject) {
+        if Kinvey.sharedClient.activeUser != nil
+        {
+            Kinvey.sharedClient.activeUser?.logout()
+        }
+        performSegue(withIdentifier: "logoutSegue", sender: nil)
+    }
+
+    @IBAction func infoPressed(_ sender: AnyObject) {
+    }
+
+    @IBAction func segmentBarValueChanged(_ sender: AnyObject) {
         searchBar.resignFirstResponder()
         searchBar.text = ""
         let segment = sender as! UISegmentedControl
         switch(segment.selectedSegmentIndex) {
         case 0:
-          filterTable(.All)
+          filterTable(.all)
         case 1:
-            filterTable(.NoBids)
+            filterTable(.noBids)
         case 2:
-            filterTable(.MyItems)
+            filterTable(.myItems)
         default:
-            filterTable(.All)
+            filterTable(.all)
         }
     }
     
-    func filterTable(filter: FilterType) {
+    func filterTable(_ filter: FilterType) {
         filterType = filter
         self.items = DataManager().sharedInstance.applyFilter(filter)
         self.tableView.reloadData()
     }
     
-    func bidOnItem(item: Item, amount: Int) {
-        
-        SVProgressHUD.show()
+    func bidOnItem(_ item: Item, amount: Int) {
+
+        ViewControllerUtils.shared.showActivityIndicator(uiView: self.view)
+//        SVProgressHUD.show()
         
         DataManager().sharedInstance.bidOn(item, amount: amount) { (success, errorString) -> () in
             if success {
-                println("Wohooo")
-                self.items = DataManager().sharedInstance.allItems
+                print("Wohooo")
+                self.items = DataManager().sharedInstance.sortedItems
                 self.reloadData()
-                SVProgressHUD.dismiss()
+                ViewControllerUtils.shared.hideActivityIndicator(uiView: self.view)
+//                SVProgressHUD.dismiss()
             }else{
                 self.showError(errorString)
                 self.reloadData()
-                SVProgressHUD.dismiss()
+                ViewControllerUtils.shared.hideActivityIndicator(uiView: self.view)
+//                SVProgressHUD.dismiss()
             }
         }
     }
     
     
-    func showError(errorString: String) {
+    func showError(_ errorString: String) {
         
-        if let gotModernAlert: AnyClass = NSClassFromString("UIAlertController") {
+        if let _: AnyClass = NSClassFromString("UIAlertController") {
             
-            
-            //make and use a UIAlertController
-            let alertView = UIAlertController(title: "Error", message: errorString, preferredStyle: .Alert)
-
-            let okAction = UIAlertAction(title: "Ok", style: .Default, handler: { (action) -> Void in
-                println("Ok Pressed")
-            })
-            
-            alertView.addAction(okAction)
-            self.presentViewController(alertView, animated: true, completion: nil)
+                let alertView = UIAlertController(title: "Error", message: errorString, preferredStyle: .alert)
+                let okAction = UIAlertAction(title: "Ok", style: .default, handler: { (action) -> Void in
+                    print("Ok Pressed")
+                })
+                
+                alertView.addAction(okAction)
+                self.present(alertView, animated: true, completion: nil)
         }
         else {
-            
             //make and use a UIAlertView
-            
-            let alertView = UIAlertView(title: "Error", message: errorString, delegate: nil, cancelButtonTitle: nil, otherButtonTitles: "Ok")
-            alertView.show()
+            let alertView = UIAlertController(title: "Error", message: errorString, preferredStyle: UIAlertControllerStyle.alert)
+            alertView.show(self, sender: nil)
         }
     }
-    
-    
-    
+
     ///Search Bar
-    
-    func searchBar(searchBar: UISearchBar, textDidChange searchText: String) {
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
         if searchText.isEmpty {
-            filterTable(.All)
+            filterTable(.all)
         }else{
-            filterTable(.Search(searchTerm:searchText))
+            filterTable(.search(searchTerm:searchText))
         }
     }
-    
-    func searchBarCancelButtonClicked(searchBar: UISearchBar) {
+
+    func searchBarCancelButtonClicked(_ searchBar: UISearchBar) {
         self.segmentBarValueChanged(segmentControl)
         searchBar.resignFirstResponder()
     }
-    
+
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        searchBar.resignFirstResponder()
+    }
+
     ///Bidding VC
-    
-    func biddingViewControllerDidBid(viewController: BiddingViewController, onItem: Item, amount: Int){
+    func biddingViewControllerDidBid(_ viewController: BiddingViewController, onItem: Item, amount: Int){
         viewController.view.removeFromSuperview()
         bidOnItem(onItem, amount: amount)
     }
-    
-    func biddingViewControllerDidCancel(viewController: BiddingViewController){
+
+    func biddingViewControllerDidCancel(_ viewController: BiddingViewController){
+        viewController.view.removeFromSuperview()
+    }
+
+    //Bid Sheet VC
+    func bidSheetViewControllerDidCancel(_ viewController: BidSheetViewController){
         viewController.view.removeFromSuperview()
     }
 }

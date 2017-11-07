@@ -3,159 +3,69 @@
 //  AuctionApp
 //
 
-import UIKit
+//import UIKit
+import Foundation
+import Kinvey
+import RealmSwift
 
 enum ItemWinnerType {
-    case Single
-    case Multiple
+    case single
+    case multiple
 }
 
-class Item: PFObject, PFSubclassing {
-    
-    @NSManaged var name:String
-    @NSManaged var price:Int
-    
-    var priceIncrement:Int {
-        get {
-            if let priceIncrementUW = self["priceIncrement"] as? Int {
-                return priceIncrementUW
-            }else{
-                return 5
-            }
-        }
+class Item: Entity {
+
+    @objc dynamic var name:String!
+    @objc dynamic var price:Int = 0
+    @objc dynamic var priceIncrement:Int = 5
+    @objc dynamic var currentPrice:[Int] = [Int]()
+    @objc dynamic var currentWinners:[String] = [String]()
+    @objc dynamic var allBidders:[String] = [String]()
+    @objc dynamic var numberOfBids:Int = 0
+    @objc dynamic var donorName:String = ""
+    @objc dynamic var donorUrl:String = ""
+    @objc dynamic var imageUrl:String = ""
+    @objc dynamic var itemDescription:String = ""
+    @objc dynamic var quantity:Int = 0
+    @objc dynamic var openTime:Date = Date()
+    @objc dynamic var closeTime:Date = Date()
+
+    @objc dynamic var allBids:Array<Bid>!
+
+    override class func collectionName() -> String {
+        // return the name of the backend collection corresponding to this entity
+        return "items"
     }
     
-    var currentPrice:[Int] {
-        get {
-            if let array = self["currentPrice"] as? [Int] {
-                return array
-            }else{
-                return [Int]()
-            }
-        }
-        set {
-            self["currentPrice"] = newValue
-        }
-    }
-    
-    var currentWinners:[String] {
-        get {
-            if let array = self["currentWinners"] as? [String] {
-                return array
-            }else{
-                return [String]()
-            }
-        }
-        set {
-            self["currentWinners"] = newValue
-        }
-    }
-    
-    var allBidders:[String] {
-        get {
-            if let array = self["allBidders"] as? [String] {
-                return array
-            }else{
-                return [String]()
-            }
-        }
-        set {
-            self["allBidders"] = newValue
-        }
-    }
-    
-    var numberOfBids:Int {
-        get {
-            if let numberOfBidsUW = self["numberOfBids"] as? Int {
-                return numberOfBidsUW
-            }else{
-                return 0
-            }
-        }
-        set {
-            self["numberOfBids"] = newValue
-        }
+    // Map properties in your backend collection to the members of this entity
+    override func propertyMapping(_ map: Map) {
+        // This maps the "_id", "_kmd", and "_acl" properties
+        super.propertyMapping(map)
+        
+        // Each propety in your entity should be mapped using the following scheme:
+        // <member variable> <- ("<query property name>", map["<backend property name>"])
+        name <- ("name", map["name"])
+        price <- ("price", map["price"])
+        priceIncrement <- ("priceIncrement", map["priceIncrement"])
+        currentPrice <- ("currentPrice", map["currentPrice"])
+        currentWinners <- ("currentWinners", map["currentWinners"])
+        allBidders <- ("allBidders", map["allBidders"])
+        numberOfBids <- ("numberOfBids", map["numberOfBids"])
+        donorName <- ("donorName", map["donorname"])
+        donorUrl <- ("donorUrl", map["donorurl"])
+        imageUrl <- ("imageUrl", map["imageurl"])
+        itemDescription <- ("itemDescription", map["decription"])
+        quantity <- ("quantity", map["qty"])
+        openTime <- ("openTime", map["opentime"], KinveyDateTransform()) // use a transform when needed
+        closeTime <- ("closeTime", map["closetime"], KinveyDateTransform()) // use a transform when needed
     }
 
-    
-    var donorName:String {
-        get {
-            if let donor =  self["donorname"] as? String{
-                return donor
-            }else{
-                return ""
-            }
-        }
-        set {
-            self["donorname"] = newValue
-        }
-    }
-    var imageUrl:String {
-        get {
-            if let imageURLString = self["imageurl"] as? String {
-                return imageURLString
-            }else{
-                return ""
-            }
-        }
-        set {
-            self["imageurl"] = newValue
-        }
-    }
-    
-
-    var itemDesctiption:String {
-        get {
-            if let desc = self["description"] as? String{
-                return desc
-            }else{
-                return ""
-            }
-        }
-        set {
-            self["description"] = newValue
-        }
-    }
-    
-    var quantity: Int {
-        get {
-            if let quantityUW =  self["qty"] as? Int{
-                return quantityUW
-            }else{
-                return 0
-            }
-        }
-        set {
-            self["qty"] = newValue
-        }
-    }
-    
-    var openTime: NSDate {
-        get {
-            if let open =  self["opentime"] as? NSDate{
-                return open
-            }else{
-                return NSDate()
-            }
-        }
-    }
-    
-    var closeTime: NSDate {
-        get {
-            if let close =  self["closetime"] as? NSDate{
-                return close
-            }else{
-                return NSDate()
-            }
-        }
-    }
-    
     var winnerType: ItemWinnerType {
         get {
             if quantity > 1 {
-                return .Multiple
+                return .multiple
             }else{
-                return .Single
+                return .single
             }
         }
     }
@@ -163,37 +73,26 @@ class Item: PFObject, PFSubclassing {
     var minimumBid: Int {
         get {
             if !currentPrice.isEmpty {
-                return minElement(currentPrice)
+                return currentPrice.min()!
             }else{
+//                return Int(truncating: price)
                 return price
             }
         }
     }
-    
+
     var isWinning: Bool {
         get {
-            let user = PFUser.currentUser()
-            return contains(currentWinners, user.email)
+            let user = Kinvey.sharedClient.activeUser
+            return currentWinners.contains(user!.email!)
         }
     }
-    
-    
+
     var hasBid: Bool {
         get {
-            let user = PFUser.currentUser()
-            return contains(allBidders, user.email)
+            let user = Kinvey.sharedClient.activeUser
+            return allBidders.contains(user!.email!)
         }
-    }
-    
-    override class func initialize() {
-        var onceToken : dispatch_once_t = 0;
-        dispatch_once(&onceToken) {
-            self.registerSubclass()
-        }
-    }
-    
-    class func parseClassName() -> String! {
-        return "Item"
     }
 }
 

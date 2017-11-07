@@ -1,25 +1,28 @@
 BidHub iOS
 ==============
-iOS client for HubSpot's open-source silent auction app. For an overview of the auction app project, [check out our blog post about it](http://dev.hubspot.com/blog/building-an-auction-app-in-a-weekend)!
+iOS client for an open-source silent auction app forked from HubSpot's BidHub app. For an overview of their auction app project, [check out their blog post about it](http://dev.hubspot.com/blog/building-an-auction-app-in-a-weekend)!
 
 ![](http://i.imgur.com/qYtj1hAl.jpg)
 
 ## Getting started
-If you haven't yet, you're going to want to set up Parse by following the instructions in the [BidHub Cloud Code repository](https://github.com/HubSpot/BidHub-CloudCode). Make a note of your application ID and client key (Parse > Settings > Keys). All set?
+The original app used Parse as the backend, but that service was shut down on January 30, 2017 so this project was rewritten to use [Kinvey](https://www.kinvey.com/). If you haven't yet, you're going to want to set up Kinvey by following the instructions in the [BidHub Cloud Code repository](https://github.com/ncauldwell/BidHub-CloudCode/tree/kinvey-backend). Make a note of your app key and app secret (Kinvey > Your App > The App's Environment > click the 3-dots next to your App name at the top of the left-nav).
 
-We use CocoaPods for dependency management [(and a whole lot of other things)](http://dev.hubspot.com/blog/architecting-a-large-ios-app-with-cocoapods). If you don't have Cocoapods, install it first: `sudo gem install cocoapods`.
+All set?
+ `git clone` this repository and open the project in Xcode.
 
-Then, `git clone` this repository. From the AuctionApp directory, run `pod install`, which will tell CocoaPods to grab all of the app's dependencies. Then, just open `AuctionApp.xcworkspace` (not `AuctionApp.xcodeproj` - this will break CocoaPods) in Xcode. 
+Create a property list file, *AuctionApp/Kinvey.plist* and add it to your project. Then add 2 string entries, `AppKey` and `AppSecret` and add the application key and secret from your Kinvey app environment. Run the app and you should be all set... almost!
+Next steps:
+* sign up (in the app)
+* assign bidder number (using the [Web Panel](https://github.com/HubSpot/BidHub-WebAdmin/tree/kinvey-backend) or the Kinvey console)
+* bid
 
-Edit *AuctionApp/AppDelegate.swift*, replacing `<your app id>` and `<your client key>` with the application ID and client key you copied from Parse. Run the app and you should be all set... almost! Try bidding on something. To keep an eye on the action, check out the [Web Panel](https://github.com/HubSpot/BidHub-WebAdmin) where you can see all your items and bids.
+Try bidding on something. To keep an eye on the action, check out the [Web Panel](https://github.com/HubSpot/BidHub-WebAdmin/tree/kinvey-backend) where you can see all your items and bids.
 
-Push isn't going to work yet, but you should be able to see Test Object 7 and bid on it. If you have the Android app up and running, and already bid on the Test Object, your Android phone will receive a sassy push notification.
+Push isn't going to work yet, but you should be able to see Test Object 7 and bid on it.
 
 ## Customization
 
-There's a few HubSpot-specific images that you can change to your liking:
-* `loginBlurredBackground` is the login background
-* `AppIcon` is the app icon (you see where this is going)
+The  `AppIcon` is the app icon from HubSpot's BidHub. Customize to suit your needs.
 
 ## Push
-Setting up push for iOS devices takes a bit of work. It's an ordeal, but a manageable ordeal, and it's been [well documented by Parse](https://parse.com/tutorials/ios-push-notifications). Follow their guide up to Step 4 and you'll be fine. Steps 5 and beyond cover adding push to the app, which we've already done.
+Setting up push for iOS devices isn't terribly difficult, and luckily it's been [documented by Kinvey](https://devcenter.kinvey.com/ios/guides/push). Follow their guide up to the 'App Set Up' step and you'll be fine. The rest of that guide covers adding push to the app, which is already done.

@@ -1,80 +1,146 @@
-
 //
 //  AppDelegate.swift
 //  AuctionApp
 //
 
 import UIKit
+import Kinvey
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
 
+    var dataManager:DataManager! = nil
 
-    func application(application: UIApplication, didFinishLaunchingWithOptions launchOptions: [NSObject: AnyObject]?) -> Bool {
-        // Override point for customization after application launch.
-        
-        Parse.setApplicationId("<your app id>", clientKey: "<your client key>")
-        PFAnalytics.trackAppOpenedWithLaunchOptionsInBackground(launchOptions, block: nil)
-        
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
 
-        let frame = UIScreen.mainScreen().bounds
-        window = UIWindow(frame: frame)
-        
-        
-        var currentUser = PFUser.currentUser()
-        if currentUser != nil {
-            let itemVC = UIStoryboard(name: "Main", bundle: NSBundle.mainBundle()).instantiateInitialViewController() as? UINavigationController
-            window?.rootViewController=itemVC
+        // Configure UI
+        InterfaceConfiguration.configure();
+
+        // Load the Kinvey Client
+        setupKinveyClient()
+
+        // Setup the Data Manager
+        self.dataManager = DataManager()
+
+        // Register for Push
+        if #available(iOS 10.0, *) {
+            Kinvey.sharedClient.push.registerForNotifications() { (succeed, error) in
+                print("registerForNotifications(): \(succeed)")
+                if let error = error {
+                    print("error: \(error)")
+                }
+            }
         } else {
-            //Prompt User to Login
-            let loginVC = UIStoryboard(name: "Main", bundle: NSBundle.mainBundle()).instantiateViewControllerWithIdentifier("LoginViewController") as! LoginViewController
-            window?.rootViewController=loginVC
+            Kinvey.sharedClient.push.registerForPush() { (succeed, error) in
+                print("registerForPush(): \(succeed)")
+                if let error = error {
+                    print("error: \(error)")
+                }
+            }
         }
-        
-        UITextField.appearance().tintColor = UIColor.orangeColor()
 
-    
-        window?.makeKeyAndVisible()
-        
-        UINavigationBar.appearance().barTintColor = UIColor(red: 177/255, green: 23/255, blue: 50/255, alpha: 1.0)
-        UINavigationBar.appearance().tintColor = UIColor.whiteColor()
-        
-        UISearchBar.appearance().barTintColor = UIColor(red: 177/255, green: 23/255, blue: 50/255, alpha: 1.0)
-        
-        
+        // If we have an active user, proceed to the main view and bypass the login / signup view
+        if Kinvey.sharedClient.activeUser != nil {
+            let navController:UINavigationController = UIStoryboard(name: "Main", bundle: nil).instantiateViewController(withIdentifier: "MainNavigationController") as! UINavigationController;
+            self.window?.rootViewController = navController;
+        }
+
         return true
     }
-    
-    func application(application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: NSData) {
-        let currentInstalation = PFInstallation.currentInstallation()
-        
-        let tokenChars = UnsafePointer<CChar>(deviceToken.bytes)
-        var tokenString = ""
-        
-        for var i = 0; i < deviceToken.length; i++ {
-            tokenString += String(format: "%02.2hhx", arguments: [tokenChars[i]])
+
+    func setupKinveyClient(_ appKey:String,appSecret:String) {
+        Kinvey.sharedClient.userType = CustomUser.self
+        Kinvey.sharedClient.initialize(appKey: appKey, appSecret: appSecret) {
+            switch $0 {
+            case .success(let user):
+                if let user = user {
+                    print("user: \(user)")
+                }
+            case .failure(let error):
+                print("error: \(error)")
+                self.presentKinveyConfigurationAlert()
+            }
         }
-        
-        println("tokenString: \(tokenString)")
-        
-        currentInstalation.setDeviceTokenFromData(deviceToken)
-        currentInstalation.saveInBackgroundWithBlock(nil)
     }
-    
-    func application(application: UIApplication, didReceiveRemoteNotification userInfo: [NSObject : AnyObject]) {
-        NSNotificationCenter.defaultCenter().postNotificationName("pushRecieved", object: userInfo)
-//        println("Push! \(userInfo)")
-        
+
+    func setupKinveyClient() {
+        let kinveyConfig = loadKinveyConfig()
+        let isValid = isKinveyConfigValid(kinveyConfig)
+
+        assert(isValid, "Be sure you have defined your Kinvey configuration in Kinvey.plist - both AppKey and AppSecret")
+
+        // Setup the Kinvey Client Library
+        let appKey = kinveyConfig?.object(forKey: AuctionAppConstants.Config.AppKey) as! String
+        let appSecret = kinveyConfig?.object(forKey: AuctionAppConstants.Config.AppSecret) as! String
+        setupKinveyClient(appKey,appSecret: appSecret)
     }
-    
-    func applicationDidBecomeActive(application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-        
+
+    func loadKinveyConfig() -> NSDictionary! {
+        if let path = Bundle.main.path(forResource: "Kinvey", ofType: "plist") {
+            let kinveyDict = NSDictionary(contentsOfFile: path)
+            return kinveyDict
+        }
+        return nil
     }
-    
+
+    func isKinveyConfigValid(_ config:NSDictionary!) -> Bool {
+        // Verify that we were actually able to get something from the plist
+        if(config == nil) {
+            return false
+        }
+
+        let appKey = config.object(forKey: AuctionAppConstants.Config.AppKey) as! String?
+        let appSecret = config.object(forKey: AuctionAppConstants.Config.AppSecret) as! String?
+
+        // Verify that these values are not nil
+        if (appKey == nil) || (appSecret == nil) {
+            return false
+        }
+
+        // Verify that these aren't just empty strings
+        if appKey!.isEmpty || appSecret!.isEmpty {
+            return false
+        }
+
+        return true
+    }
+
+    func testKinveyConnection() {
+        Kinvey.sharedClient.ping() { (result:Result<EnvironmentInfo, Swift.Error>) in
+            switch result {
+            case .success(let envInfo):
+                print(envInfo);
+            case .failure(let error):
+                print(error)
+            }
+        };
+    }
+
+    func presentKinveyConfigurationAlert() {
+        let alertController = UIAlertController(title: "Kinvey Config", message: "The application was not properly configured with the needed Kinvey appKey and appSecret.  You will need to create your own Kinvey app instance and load this information.", preferredStyle: UIAlertControllerStyle.alert)
+        alertController.addAction(UIAlertAction(title: "OK", style: UIAlertActionStyle.cancel, handler: { (action) -> Void in
+            alertController.dismiss(animated: true, completion: nil)
+        }))
+
+        alertController.addAction(UIAlertAction(title: "Read More", style: UIAlertActionStyle.default, handler: { (action) -> Void in
+            //TODO: Add the URL to launch
+            UIApplication.shared.openURL(URL(string: "https://devcenter.kinvey.com/ios")!)
+            alertController.dismiss(animated: true, completion: nil)
+        }))
+
+        let topWindow = UIWindow(frame: UIScreen.main.bounds)
+        topWindow.rootViewController = UIViewController()
+        topWindow.windowLevel = UIWindowLevelAlert + 1
+        topWindow.makeKeyAndVisible()
+        topWindow.rootViewController?.present(alertController, animated: true, completion: nil)
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) {
+        if(Kinvey.sharedClient.activeUser != nil) {
+            dataManager.newBidReceived(userInfo)
+        }
+    }
 }
-
-
 

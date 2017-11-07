@@ -3,15 +3,14 @@
 //  AuctionApp
 //
 
-import UIKit
-
+//import UIKit
+import Foundation
+import Kinvey
 
 class DataManager: NSObject {
- 
-    var allItems: [Item] = [Item]()
 
-    var timer:NSTimer?
-    
+    var timer:Timer?
+
     var sharedInstance : DataManager {
         struct Static {
             static let instance : DataManager = DataManager()
@@ -19,46 +18,140 @@ class DataManager: NSObject {
         
         return Static.instance
     }
-    
-    
-    func getItems(completion: ([Item], NSError?) -> ()){
-        let query = Item.query()
-        query.limit = 1000
-        query.addAscendingOrder("closetime")
-        query.addAscendingOrder("name")
-        query.findObjectsInBackgroundWithBlock { (results, error) -> Void in
-            if error != nil{
-                println("Error!! \(error)")
-                completion([Item](), error)
-            }else{
-                if let itemsUW = results as? [Item] {
-                    self.allItems = itemsUW
-                    completion(itemsUW, nil)
-                }
-            }
+
+    fileprivate var items:[Item]! = nil {
+        didSet {
+            sortedItems = items.sorted() { $0.closeTime.compare($1.closeTime) == ComparisonResult.orderedAscending }
+        }
+    }
+
+    var sortedItems:[Item]! = nil {
+        didSet {
+            NotificationCenter.default.post(name: Notification.Name(rawValue: AuctionAppConstants.Notifications.ItemsUpdated), object:nil, userInfo:nil)
+        }
+    }
+
+    fileprivate var bids:[Bid]! = nil {
+        didSet {
+            sortedBids = bids.sorted() { $0.amount < $1.amount }
+        }
+    }
+
+    var sortedBids:[Bid]! = nil {
+        didSet {
+            NotificationCenter.default.post(name: Notification.Name(rawValue: AuctionAppConstants.Notifications.BidsUpdated), object:nil, userInfo:nil)
+        }
+    }
+
+    let itemStore = DataStore<Item>.collection()
+    let bidsStore = DataStore<Bid>.collection()
+
+    func newBidReceived(_ bidInfo:[AnyHashable: Any]?) {
+        if Kinvey.sharedClient.activeUser != nil
+        {
+            let message = bidInfo![AuctionAppConstants.PushNotifications.BidText] as! String
+            let notificationUserInfo:[AnyHashable: Any]? = [
+                AuctionAppConstants.Notifications.NewBidReceivedUserInfoBidKey : message
+            ]
+            let notification = Notification(name: Notification.Name(rawValue: AuctionAppConstants.Notifications.NewBidReceived), object: nil, userInfo:notificationUserInfo)
+            NotificationCenter.default.post(notification)
+        NotificationCenter.default.post(name: Notification.Name(rawValue: "pushRecieved"), object: bidInfo)
+        }
+    }
+
+    func fetchItems() {
+        fetchItems { (results, error) -> () in
+            // Do Something
         }
     }
     
-    func searchForQuery(query: String) -> ([Item]) {
-        return applyFilter(.Search(searchTerm: query))
+    func fetchItems(_ completion: @escaping ([Item]?, NSError?) -> ()) {
+        let sortTime = NSSortDescriptor(key: "closeTime", ascending: true)
+        let sortName = NSSortDescriptor(key: "name", ascending: true)
+        let query = Query(sortDescriptors: [sortTime, sortName])
+        query.limit = 1000;
+        itemStore.find(query, options: nil) { (results: Result<AnyRandomAccessCollection<Item>, Swift.Error>) in
+            switch results {
+            case .success(let allItems):
+                // FIXME: I don't know how else to get the AnyRandomAccessCollection<Item> into an [Item]
+                // Maybe (probably?) I should just change the app to use AnyCollection<Item> instead of [Item]
+                self.items = allItems.reversed().reversed();
+                for item in self.items {
+                    let findItem = NSPredicate(format: "itemId = %@", item.entityId!)
+                    let sortAmt = NSSortDescriptor(key: "amount", ascending: true)
+                    let query = Query(predicate: findItem, sortDescriptors: [sortAmt])
+                    query.limit = 1000
+                    self.bidsStore.find(query, options: nil) { (results: Result<AnyRandomAccessCollection<Bid>, Swift.Error>) in
+                        switch results {
+                        case .success(let itemBids):
+                            item.allBids = itemBids.reversed().reversed()
+                        case .failure(let error):
+                            print("ERROR FETCHING ITEM BIDS", terminator: "")
+                            completion(nil, error as NSError?)
+                        }
+                    }
+                }
+                completion(self.items, nil)
+            case .failure(let error):
+                print("ERROR FETCHING ITEMS", terminator: "")
+                completion(nil, error as NSError?)
+            }
+        }
     }
-    
-    func applyFilter(filter: FilterType) -> ([Item]) {
-        return allItems.filter({ (item) -> Bool in
-            return filter.predicate.evaluateWithObject(item)
+
+    func searchForQuery(_ query: String) -> ([Item]) {
+        return applyFilter(.search(searchTerm: query))
+    }
+
+    func applyFilter(_ filter: FilterType) -> ([Item]) {
+        return items.filter({ (item) -> Bool in
+            return filter.predicate.evaluate(with: item)
         })
     }
-    
-    func bidOn(item:Item, amount: Int, completion: (Bool, errorCode: String) -> ()){
-        
-        let user = PFUser.currentUser()
-        
-        Bid(email: user.email, name: user.username, amount: amount, itemId: item.objectId)
+
+    func bidOn(_ item:Item, amount: Int, completion: @escaping (Bool, _ errorCode: String) -> ()){
+
+        let user = Kinvey.sharedClient.activeUser as? CustomUser
+        let bid = Bid()
+        bid.email = user?.email
+        bid.name = (user?.first_name)! + " " + (user?.last_name)!
+        bid.bidderNumber = user?.bidderNumber
+        bid.amount = amount
+        bid.itemId = item.entityId
+
+        bidsStore.save(bid, options: nil) { (result: Result<Bid, Swift.Error>) in
+            switch result {
+            case .success(let bid):
+                //save was successful
+                NSLog("Successfully saved bid (id='%@').", bid.entityId!)
+            case .failure(let error):
+                //save failed
+                let errorString:String = error.localizedDescription
+                NSLog("Save failed, with error: %@", errorString)
+                completion(false, errorString)
+                return
+            }
+
+            self.itemStore.find(item.entityId!, options: nil) { (result: Result<Item, Swift.Error>) in
+                switch result {
+                case .success(let item):
+                    NSLog("successful reload: %@", item as NSObject) // event updated
+                    self.replaceItem(item)
+                    completion(true, "")
+                case .failure(let error):
+                    let errorString:String = error.localizedDescription
+                    NSLog("error occurred: %@", errorString)
+                    completion(false, errorString)
+                }
+            }
+        }
+/*
+        Bid(email: user.email, name: user.username, amount: amount, itemId: item.entityId!)
         .saveInBackgroundWithBlock { (success, error) -> Void in
             
             if error != nil {
                 
-                if let errorString:String = error.userInfo?["error"] as? String{
+                if let errorString:String = error.userInfo["error"] as? String{
                     completion(false, errorCode: errorString)
                 }else{
                     completion(false, errorCode: "")
@@ -81,11 +174,12 @@ class DataManager: NSObject {
                 
             })
         }
+*/
     }
     
-    func replaceItem(item: Item) {
-        allItems = allItems.map { (oldItem) -> Item in
-            if oldItem.objectId == item.objectId {
+    func replaceItem(_ item: Item) {
+        items = items.map { (oldItem) -> Item in
+            if oldItem.entityId == item.entityId {
                 return item
             }
             return oldItem
@@ -94,37 +188,35 @@ class DataManager: NSObject {
 }
 
 
-enum FilterType: Printable {
-    case All
-    case NoBids
-    case MyItems
-    case Search(searchTerm: String)
+enum FilterType: CustomStringConvertible {
+    case all
+    case noBids
+    case myItems
+    case search(searchTerm: String)
     
     var description: String {
         switch self{
-        case .All:
+        case .all:
             return "All"
-        case .NoBids:
+        case .noBids:
             return "NoBids"
-        case .MyItems:
+        case .myItems:
             return "My Items"
-        case .Search:
+        case .search:
             return "Searching"
         }
     }
     
     var predicate: NSPredicate {
         switch self {
-        case .All:
-            return NSPredicate(value: true)
-        case .NoBids:
+        case .noBids:
             return NSPredicate(block: { (object, bindings) -> Bool in
                 if let item = object as? Item {
                     return item.numberOfBids == 0
                 }
                 return false
             })
-        case .MyItems:
+        case .myItems:
             return NSPredicate(block: { (object, bindings) -> Bool in
                 if let item = object as? Item {
                     return item.hasBid
@@ -132,8 +224,16 @@ enum FilterType: Printable {
                 return false
             })
 
-        case .Search(let searchTerm):
-            return NSPredicate(format: "(donorName CONTAINS[c] %@) OR (name CONTAINS[c] %@) OR (itemDesctiption CONTAINS[c] %@)", searchTerm)
+        case .search(let searchTerm):
+            return NSPredicate(block: { (object, bindings) -> Bool in
+                if let item = object as? Item {
+                    return item.name.contains(searchTerm) || item.donorName.contains(searchTerm) || item.itemDescription.contains(searchTerm)
+                }
+                return false
+            })
+//            return NSPredicate(format: "(donorName CONTAINS[c] %@) OR (name CONTAINS[c] %@) OR (itemDescription CONTAINS[c] %@)", searchTerm)
+        case .all:
+            fallthrough
         default:
             return NSPredicate(value: true)
         }
